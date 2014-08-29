@@ -6,16 +6,18 @@
 megs: 16
 
 # filename of ROM images
+
 romimage: file=/usr/local/share/bochs/BIOS-bochs-latest
-vgaromimage: /usr/local/share/bochs/VGABIOS-lgpl-latest
+
+vgaromimage: file=/usr/local/share/bochs/VGABIOS-lgpl-latest
 
 # what disk images will be used
 floppya: 1_44=OBJ/sfs.img, status=inserted
 
 # choose the boot disk.
-boot:a
+boot: floppy
 
-i440fxsupport: enabled=1, slot1=pcivga, slot2=ne2k
+#i440fxsupport: enabled=1, slot1=pcivga, slot2=ne2k
 
 # ne2k
 #ne2k: ioaddr=0x300, irq=9, mac=b0:c4:20:00:00:01, ethmod=null, ethdev=eth0
