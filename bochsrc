@@ -1,0 +1,32 @@
+###############################################################
+# Configuration file for Bochs
+###############################################################
+
+# how much memory the emulated machine will have
+megs: 16
+
+# filename of ROM images
+romimage: file=/usr/local/share/bochs/BIOS-bochs-latest
+vgaromimage: /usr/local/share/bochs/VGABIOS-lgpl-latest
+
+# what disk images will be used
+floppya: 1_44=OBJ/sfs.img, status=inserted
+
+# choose the boot disk.
+boot:a
+
+i440fxsupport: enabled=1, slot1=pcivga, slot2=ne2k
+
+# ne2k
+#ne2k: ioaddr=0x300, irq=9, mac=b0:c4:20:00:00:01, ethmod=null, ethdev=eth0
+#ne2k: ioaddr=0x280, irq=9, mac=b0:c4:20:00:00:00, ethmod=linux, ethdev=eth0
+# where do we send log messages?
+# log: bochsout.txt
+# disable the mouse
+
+mouse: enabled=0
+
+vga: extension=vbe
+
+# enable key mapping, using US layout as default.
+keyboard_mapping: enabled=1, map=/usr/local/share/bochs/keymaps/x11-pc-us.map
