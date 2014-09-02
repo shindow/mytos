@@ -170,6 +170,9 @@ LoadKernelBin:
 	push eax
 	mov eax,PIC_OFFSET
 	push eax
+	;跳转时需要把代码段寄存器和数据段寄存器设置到代码加载的相应起始地址，否则访问load.s
+	;中变量地址会有误(LOAD_SEG will set to the address loaded with load.bin,cause without that
+	;the variable calling will cause fault in load.s)
 	jmp LOAD_SEG:LOAD_OFFSET
 
 ;***********************procedure**********************
@@ -269,11 +272,11 @@ bHasPicBin db 0
 BOOT_NEW_SEG equ 0x1000
 BOOT_START_SEG equ 0x7c0
 
-LOAD_SEG equ 0x1000
-LOAD_OFFSET equ 0x400
+LOAD_SEG equ 0x1040
+LOAD_OFFSET equ 0x0
 
-KERNEL_SEG equ 0x1000
-KERNEL_OFFSET equ 0x600
+KERNEL_SEG equ 0x2000
+KERNEL_OFFSET equ 0x0
 
 PIC_SEG equ 0x100
 PIC_OFFSET equ 0

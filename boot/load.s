@@ -4,6 +4,35 @@
 ;
 ;	rewrite on 214.9.1
 ;
+
+;================================================
+;TODO	dectect VGA card type
+;		display infomation with hex or str
+;================================================
+
+;0x7c00处保存了软盘参数12字节(save 12 bytes floppy parameter,actually when runs over of boot.bin
+;it will not be used forever)
+;0x1000处保存了Pic.bin，如果有的话(if have Pic.bin,save it at 0x1000)
+;0x20000处保存内核(save kernel at 0x20000)
+;0x10000处保存引导扇区,0x10200处保存软盘header信息扇区(save boot.bin at 0x10000,save floppy header
+;sector at 0x10200)
+;0x10400处保存load.bin(save boot.bin at 0x10400)
+;0x9000处保存其他相关参数(save other parameter at 0x9000)
+
+;0xA0000-0xBFFFF用于显示缓冲区(128K)
+;0xC0000-0xC7FFF用于显卡BIOS
+;0xC8000-0xCBFFF用于IDE控制器BIOS
+;0xF0000-0xFFFFF用于系统BIOS
+
+;0x A 0 0 0 0
+;｜
+;｜ 2x64K=128K;　　作为显存使用
+;｜　　　　　　　0xa0000-0xb0000 EGA/VGA/XGA/XVGA图形视频缓冲区
+;｜　　　　　　　0xb0000-0xb8000 Mono text video buffer
+;｜　　　　　　　0xb8000-0xc0000 CGA/EGA+ chroma text video buffer
+;｜
+;｜
+;0x B F F F F
 %include "protect.inc"
 [BITS 16]
 
@@ -44,7 +73,7 @@
 	;B 	1011 		Light Cyan 	
 	;C 	1100 	Light Red 	
 	;D 	1101 		Light Magenta 	
-	;E 	1110 		Yellow 	
+	;E 	1110 		Yellow
 	;F 	1111 		White
 	mov ah,0xb
 	mov bh,0
@@ -61,7 +90,9 @@
 	
 	cmp cx,0
 	jz NoNeedToLoadPicBin
-
+	;
+	;加载pic.bin(load pic.bin)
+	;
 	mov esi,eax	
 	mov fs,bx
 	mov cx,2000
@@ -75,101 +106,124 @@
 		add di,2
 		loop L1
 NoNeedToLoadPicBin:
-;=======================
-mov dh,11	;行	
-mov dl,0		;列
-call SetCursor
+	mov ax,PARA_ADDR_DS
+	mov ds,ax
 
-pop ax
-mov [start],ax
-xor ax,ax
-pop ax
-mov [header],al
-pop ax
-mov [tracker],al
-pop ax
-mov [sector],al
-pop cx
-Kernel:		   ;加载kernel.bin,从0x40200开始
-	push cx
-	call IncSector
-	call ReadSector
-	pop cx
-	dec cx
-	cmp cx,0
-	jnz Kernel
+	;获取扩展内存(INT 15h, AH=88h - Get Extended Memory Size)
+	;Input:
+	;	AH	Function Code	88h
+	;Output:
+	;	CF	Carry Flag	Non-Carry - indicates no error
+	;	AX	Memory Count	Number of contiguous KB above 1 MB.
+	mov ah,0x88
+	int 0x15
+	mov word [0],ax
+	
+	;Int 10/AH=12h/BL=10h 
+	;检测显示方式(EGA, VGA, MCGA) - GET EGA INFO
+	;Return:
+	;	BH = video state
+	;		00h color mode in effect (I/O port 3Dxh)
+	;		01h mono mode in effect (I/O port 3Bxh)
+	;	BL = installed memory (00h = 64K, 01h = 128K, 02h = 192K, 03h = 256K)
+	;	CH = feature connector bits
+	;	CL = switch settings
+	;	AH destroyed (at least by Tseng ET4000 BIOS v8.00n)
+	xor ax,ax
+	xor bx,bx
+	xor cx,cx
+	mov ah,0x12
+	mov bl,0x10
+	int 0x10
+	;存储video state和installed memory
+	mov word [2],bx
+	;显卡参数
+	mov word [4],cx
 
-call KillMotor
-call InitKernel
-
-xor eax,eax
-mov ax,ds
-shl eax,4
-add eax,gdt
-mov dword [gdt_ptr+2],eax
-
-lgdt [gdt_ptr]
-
-cli
-in al,92h
-or al,00000010b
-out 92h,al
-mov eax,cr0
-or eax,1
-mov cr0,eax
-
-
-xor eax,eax
-mov ax,ds
-shl eax,4
-add eax,LABEL_TSS
-mov word [LABEL_DES_TSS+2],ax
-shr eax,16
-mov byte [LABEL_DES_TSS+4],al
-mov byte [LABEL_DES_TSS+7],ah
-mov ax,0x28
-ltr ax
-
-mov ax,0x10
-mov ds,ax
-mov es,ax
-
-
-
-jmp dword 8:0x20400
-;********************increase a sector******************
-IncSector:
-	mov ax,[start]
-	inc ax
-	mov [start],ax
-	div byte [secPer]
-	inc ah
-	mov [sector],ah
-	mov ah,al
-	and ah,1
-	mov [header],ah
-	shr al,1
-	mov [tracker],al
-
-	mov ax,word [copy_off]
-	add ax,200h
-	mov word [copy_off],ax
-	ret
-;********************read a sector*********************
-ReadSector:
-goon:					;write to es:bx
-	mov ax,word [copy_ds]							
+	;===================================================
+	;获取硬盘参数(get disk parameter)
+	;===================================================
+	
+	;在地址4*0x41处的四个字节是硬盘参数存储的段和偏移地址，取出来再取对应地址的内容
+	;(the 4*0x41 address store the ds and offset of the address of the disk parameter)
+	mov ax,0
+	mov ds,ax
+	lds si,[4*0x41]
+	mov ax,PARA_ADDR_DS
 	mov es,ax
-	mov bx,word [copy_off]
-	mov ah,02h		;ah int 13 function number
-	mov al,01h		;读取扇区数
-	mov ch,[tracker]	;ch tracker	(从0开始)
-	mov dl,[driver]		;dl driver		(从0开始)	
-	mov dh,[header]	 ;dh header	(从0开始)
-	mov cl,[sector]	;cl sector		(从1开始)
-	int 13h
-	jc goon
-	ret
+	;硬盘参数HD0存储在PARA_ADDR_DS:20(the disk hd0 parameter stored in PARA_ADDR_DS:20) 
+	mov di,20
+	mov cx,16
+	rep movsb
+
+	mov ax,0
+	mov ds,ax
+	lds si,[4*0x46]
+	mov ax,PARA_ADDR_DS
+	mov es,ax
+	;硬盘参数HD1存储在PARA_ADDR_DS:32(the disk hd1 parameter stored in PARA_ADDR_DS:32)
+	mov di,32
+	mov cx,16
+	rep movsb
+	
+	;===================================================
+	;获取硬盘参数(get disk parameter)
+	;===================================================
+
+	
+	;还原ds(reset ds to cs)
+	mov ax,cs
+	mov ds,ax
+
+	;curosr parameter
+	mov dh,11		;row	
+	mov dl,0		;column
+	call SetCursor
+
+	
+	;===================================================
+	;初始化内核(init kernel and jump to protected mode)
+	;===================================================
+
+	;设置GDTR(set GDTR register)
+	xor eax,eax
+	mov ax,ds
+	shl eax,4
+	add eax,gdt
+	mov dword [gdt_ptr+2],eax
+	lgdt [gdt_ptr]
+
+	;打开地址线A20(open A20)
+	cli
+	in al,92h
+	or al,00000010b
+	out 92h,al
+
+	
+	;准备切换到保护模式
+	mov eax,cr0
+	or eax,1
+	mov cr0,eax
+
+	;加载任务(load task)
+	xor eax,eax
+	mov ax,ds
+	shl eax,4
+	add eax,LABEL_TSS
+	mov word [LABEL_DES_TSS+2],ax
+	shr eax,16
+	mov byte [LABEL_DES_TSS+4],al
+	mov byte [LABEL_DES_TSS+7],ah
+	mov ax,0x28
+	ltr ax
+
+	;设置段寄存器(set segment register)
+	mov ax,0x10
+	mov ds,ax
+	mov es,ax
+	
+
+	jmp dword 8:0x20000
 ;*****************ax=address,bx=length,es:bp****************
 Display:
 	push bp
@@ -198,7 +252,7 @@ SetCursor:
 	ret
 ;********************procedure*******************
 ;********************InitKernel*******************
-InitKernel:
+ResetKernelAddr:
 	push ds
 	mov ax,0x2000		;新kernel.bin
 	mov es,ax
@@ -215,7 +269,7 @@ Again:
 	push cx
 	mov ecx,[fs:si+0x10]			;program 大小
 	mov eax,dword [fs:si+0x4]		;program旧地址
-	add eax,BaseOfKernel
+	add eax,NEW_KERNEL_BASE_ADDR
 	mov ebx,dword [fs:si+0x8]		;program 新地址
 
 	mov si,ax
@@ -254,28 +308,14 @@ ReadPos:
 	mov ah,0x3	;dl contains x 
 	int 10h		;dh contains y
 	ret
-;**********************procedure***********************
-;*********************KillMotor*************************
-KillMotor:
-	push dx
-	mov dx,0x3F2
-	mov al,0
-	out dx,al
-	pop dx
-	ret
 
 ;**********************variable definition***********************
 msgWel		db "shindow,here we go!Welcome to the os world!"
 mWLength	EQU $-msgWel
-sector	db	2
-header	db	0	
-tracker	db	0
-driver	db	0
-start		dw	1
-secPer	db	18
-copy_off	dw  0x0
-copy_ds	dw  0x4000
-BaseOfKernel	equ	0x40200
+PARA_ADDR_DS	equ 0x900
+
+
+NEW_KERNEL_BASE_ADDR 	equ	0x20000
 gdt:
 	SEG 0,0,0
 	SEG 0,0xFFFFF,D_T_RW+D_T_E+D_G4K+DA_32C		;code seg ,ring 0
